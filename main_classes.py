@@ -27,10 +27,11 @@ class NewSprite(pygame.sprite.Sprite):
     def __init__(self, image_name, screen, cords, group=None):
         super().__init__(group)
         self.screen = screen
-        # if (image_name is not None):
+
         self.image = load_image(image_name, -1)
 
         self.rect = self.image.get_rect()
+        self.circle_radius = self.rect.height // 2
         self.x, self.y = cords[0], cords[1]
 
     def update(self, *args, **kwargs):
@@ -40,36 +41,29 @@ class NewSprite(pygame.sprite.Sprite):
 class Element(NewSprite):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.left_change = LEFT_CHANGE
+        self.right_change = RIGHT_CHANGE
 
-        # next peace of code is for the little size difference between the particles {
+    def changing_size(self):
+        # next peace of code is for the little size difference between the particles
         w_new, h_new = self.new_size()
-        # print(self.image.get_size())
         self.image = pygame.transform.scale(self.image, (w_new, h_new))
-        # print(self.image.get_size())
-        # }
         self.rect = self.image.get_rect()
-
-        NewSprite.update(self)
+        self.circle_radius = self.rect.height // 2
+        super().update(self)
 
     def new_size(self):
         w, h = self.image.get_width(), self.image.get_height()
-        scale_change = randint(self.left_change, RIGHT_CHANGE)
+        scale_change = randint(self.left_change, self.right_change)
         w_new, h_new = int(w * (scale_change / 100)), int(h * (scale_change / 100))
         return w_new, h_new
 
 
 class Particle(Element):
-    def __init__(self, max_size, *args, **kwargs):
-        self.max_size = max_size
-        self.frames_to_live = randint(300, 500)
+    def __init__(self, *args, **kwargs):
+        self.frames_to_live = randint(200, 400)
         self.age = 0
         super().__init__(*args, **kwargs)
-
-    def new_size(self):
-        w, h = self.image.get_width(), self.image.get_height()
-        scale_change = randint(LEFT_CHANGE, int(self.max_size[0] / self.image.get_width() * 100))
-        w_new, h_new = int(w * (scale_change / 100)), int(h * (scale_change / 100))
-        return w_new, h_new
 
     def update(self, *args, **kwargs):
         if (self.age == self.frames_to_live):
@@ -89,7 +83,7 @@ class ParticlesSource(Element):
     def update(self, *args, **kwargs):
         super().update()
         if (self.count == self.particles_borning_v):
-            self.born_particle([(self.image.get_width(), self.image.get_height()), self.screen, (self.x, self.y), self.particles])
+            self.born_particle([self.screen, (self.x, self.y), self.particles])
             self.count = 0
             self.particles_borning_v = randint(20, 40)
         self.particles.draw(self.screen)
@@ -102,7 +96,9 @@ class StaticSpriteGroup(pygame.sprite.Group):
         super().__init__()
         self.x, self.y = cords
 
-    def move(self, dx, dy):
+    def set_cords(self, cords):
+        dx, dy = cords[0] - self.x, cords[1] - self.y
+        self.x, self.y = cords
         for sprite in self.sprites():
             sprite.x += dx
             sprite.y += dy
