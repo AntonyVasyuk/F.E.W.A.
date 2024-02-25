@@ -40,9 +40,7 @@ class Player(NewSprite):
         self.can_move_y = True
         self.can_move_x = True
 
-        self.is_moved_before = True
-
-        self.jump_frame_cnt = 0
+        self.jumping = False
 
         self.addicted_sprites = StaticSpriteGroup((self.x, self.y))
         self.eyes = NewSprite("eyes.png", self.screen, (self.x, self.y), self.addicted_sprites)
@@ -56,24 +54,29 @@ class Player(NewSprite):
         self.vx, self.vy, self.ax, self.ay, self.max_vx, self.max_vy = new_char_s
 
     def jump(self):
-        # self.is_on_the_ground = False
-        self.vy = -JUMP_SPEED
-        self.jump_frame_cnt = 10
+        if (not self.jumping):
+            self.vy = -JUMP_SPEED
+            self.jumping = True
 
     def move_check(self, blocker: pygame.sprite.Group):
         self.can_move_y = self.is_possible_to_move(0, self.vy + self.ay, blocker)
         self.can_move_x = self.is_possible_to_move(self.vx + self.ax, 0, blocker)
+        if (not self.can_move_y):
+            self.jumping = False
+            self.vy = self.vy * -1 * 0.25
+
+        if (not self.can_move_x):
+            self.vx = self.vx * -1 * 0.25
 
     def is_possible_to_move(self, dx, dy, blocker: pygame.sprite.Group):
-        d = 0
-        self.x += dx + d
-        self.y += dy + d
+        self.rect.x += dx
+        self.rect.y += dy
         collide_with = []
         for sprite in blocker:
-            if collide_by_circle(self, sprite):
+            if pygame.sprite.collide_rect(self, sprite):
                 collide_with.append(sprite)
-        self.x -= dx + d
-        self.y -= dy + d
+        self.rect.x -= dx
+        self.rect.y -= dy
         if (collide_with):
             return False
         else:
@@ -85,22 +88,14 @@ class Player(NewSprite):
             if (abs(self.vx) >= self.max_vx):
                 self.vx -= self.ax
             self.x += self.vx
-        else:
-            self.is_moved_before = False
 
         if (self.can_move_y):
-            if (not self.is_moved_before and self.jump_frame_cnt == 0):
-                self.vy = 0
-            self.is_moved_before = True
+
             self.vy += self.ay
             if (abs(self.vy) >= self.max_vy):
                 self.vy -= self.ay
-            self.y += self.vy
-        else:
-            self.is_moved_before = False
 
-        if (self.jump_frame_cnt > 0):
-            self.jump_frame_cnt -= 1
+            self.y += self.vy
 
         self.addicted_sprites.set_cords((self.x, self.y))
         self.addicted_sprites.update()
@@ -286,6 +281,13 @@ class ButtonGroup(pygame.sprite.Group):
 
 
 def collide_by_circle(first: NewSprite, second: NewSprite):
+    dx, dy = abs(first.x - second.x), abs(first.y - second.y)
+    d = (dx ** 2 + dy ** 2) ** 0.5
+    if (d <= first.circle_radius + second.circle_radius):
+        return True
+    return False
+
+def collide_by_circle_and_rect(first: NewSprite, second: NewSprite):
     dx, dy = abs(first.x - second.x), abs(first.y - second.y)
     d = (dx ** 2 + dy ** 2) ** 0.5
     if (d <= first.circle_radius + second.circle_radius):
