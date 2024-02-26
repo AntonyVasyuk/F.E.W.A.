@@ -1,3 +1,7 @@
+import csv
+import os
+import pickle
+
 import pygame
 
 from EarthClasses import Earth
@@ -16,12 +20,15 @@ MAX_GOR_SPEED = 30
 BTN_CREATE_LEVEL = 1
 BTN_START_GAME = 2
 
+folder_with_levels = "levels"
+SEP = os.sep
+
 
 def create_fire(screen, event, sprites):
     fire = BurningFire(screen, (event.pos[0], event.pos[1]), sprites)
 
-def create_earth(screen, event, sprites):
-    earth = Earth(screen, (event.pos[0], event.pos[1]), sprites)
+def create_earth(screen, event, sprites, size):
+    earth = Earth(screen, (event.pos[0], event.pos[1]), sprites, size)
 
 def create_water(screen, event, sprites):
     pass
@@ -115,11 +122,49 @@ class Game:
         self.start_screen()
         # self.game()
 
-    def game(self):
+    def choose_level(self):
+        levels = map(lambda s: s[:-4], os.listdir(folder_with_levels))
+
+        buttons = ButtonGroup(self.screen)
+        font = 50
+
+        for i, level in enumerate(levels):
+            lvl_btn = Button((level, (0, 0, 0), (255, 255, 255), font),
+                                  (10, 10 + i * font), buttons, lambda: self.game(level))
+
+        running = True
+        while (running and self.running):
+            keys = pygame.event.get()
+            mods = pygame.key.get_mods()
+            for event in keys:
+                if (event.type == pygame.QUIT):
+                    running = False
+                    self.left_game()
+                if(event.type == pygame.MOUSEBUTTONDOWN):
+                    buttons.check_event(event)
+
+            self.screen.fill((255, 255, 255))
+
+            buttons.draw()
+            buttons.update()
+            pygame.display.flip()
+
+    def load_level(self, level_name, sprites):
+        with open(f"{folder_with_levels}{SEP}{level_name}.csv") as f:
+            reader = csv.reader(f, delimiter=';', lineterminator='\n')
+            for i, row in enumerate(reader):
+                if (row):
+                    row = list(map(int, row))
+                    sprite = Earth(self.screen, (row[0], row[1]), sprites, row[2])
+
+    def game(self, level_name=None):
         self.creating_f = create_earth
         self.players = pygame.sprite.Group()
         self.player1 = Player(fire_image_name, self.screen, (400, 300), self.players)
-        self.ground = pygame.sprite.Group()
+
+        ground = pygame.sprite.Group()
+        if (level_name is not None):
+            self.load_level(level_name, ground)
 
         while (self.running):
             for event in pygame.event.get():
@@ -151,29 +196,40 @@ class Game:
                             self.player1.set_char_s([0, None, 0, None, None, None])
                 if (event.type == pygame.MOUSEBUTTONDOWN):
                     if (self.creating_f == create_earth):
-                        earth = Earth(self.screen, (event.pos[0], event.pos[1]), self.ground)
+                        earth = Earth(self.screen, (event.pos[0], event.pos[1]), ground)
                     else:
                         self.creating_f(self.screen, event, self.player1.addicted_sprites)
 
             self.screen.fill((255, 255, 255))
 
             for player in self.players.sprites():
-                player.move_check(self.ground)
+                player.move_check(ground)
 
             self.players.draw(self.screen)
             self.players.update()
-            self.ground.draw(self.screen)
-            self.ground.update()
+            ground.draw(self.screen)
+            ground.update()
             pygame.display.flip()
             self.clock.tick(FPS)
 
     def creating_level(self):
         self.creating_f = create_earth
-        self.ground = pygame.sprite.Group()
+        ground = pygame.sprite.Group()
 
-        while (self.running):
-            for event in pygame.event.get():
+        # d = size // 2
+        d = 0
+        size = 50
+        other_sprites = pygame.sprite.Group()
+        indication = Earth(self.screen, pygame.mouse.get_pos(), other_sprites, size)
+
+        running = True
+
+        while (running and self.running):
+            keys = pygame.event.get()
+            mods = pygame.key.get_mods()
+            for event in keys:
                 if (event.type == pygame.QUIT):
+                    running = False
                     self.left_game()
                 if (event.type == pygame.KEYDOWN):
                     match event.key:
@@ -183,29 +239,53 @@ class Game:
                             self.creating_f = create_earth
                         case pygame.K_3:
                             self.creating_f = create_water
+                        case pygame.K_s:
+                            if (mods & pygame.KMOD_CTRL):
+                                self.save_level(ground)
+                                running = False
+                if (event.type == pygame.MOUSEWHEEL):
+                    d = 5
+                    size += event.y * d
+                    if (size < 0):
+                        size -= event.y * d
+                    print(size)
 
                 if (event.type == pygame.MOUSEBUTTONDOWN):
-                    f = True
-                    for sprite in self.ground.sprites():
-                        if (sprite.del_if_mouse_clicked(event)):
-                            f = False
-                    if (f):
-                        if (self.creating_f == create_earth):
-                            earth = Earth(self.screen, (event.pos[0], event.pos[1]), self.ground)
-                        # else:
-                        #     self.creating_f(self.screen, event, self.player1.addicted_sprites)
+                    if (event.button != 5 and event.button != 4):
+                        f = True
+                        for sprite in ground.sprites():
+                            if (sprite.del_if_mouse_clicked(event)):
+                                f = False
+                        if (f):
+                            if (self.creating_f == create_earth):
+                                earth = Earth(self.screen, (event.pos[0] + d, event.pos[1] + d), ground, size)
+                            # else:
+                            #     self.creating_f(self.screen, event, self.player1.addicted_sprites)
 
             self.screen.fill((255, 255, 255))
 
-            self.ground.draw(self.screen)
-            self.ground.update()
+            ground.draw(self.screen)
+            ground.update()
+
+            indication.change_size(size)
+
+            indication.x, indication.y = map(lambda x: x + d, list(pygame.mouse.get_pos()))
+            other_sprites.draw(self.screen)
+            other_sprites.update()
+
             pygame.display.flip()
             self.clock.tick(FPS)
 
-            try:
-                pass
-            except Exception as ex:
-                print(ex)
+        self.start_screen()
+
+    def save_level(self, saved: pygame.sprite.Group):
+        name = input()
+        file_name = f"{folder_with_levels}{SEP}{name}.csv"
+        open(file_name, mode='w').close()
+        with open(file_name, mode='w') as f:
+            writer = csv.writer(f, delimiter=';', lineterminator='\n')
+            for obj in saved:
+                writer.writerow([obj.x, obj.y, obj.rect.width])
 
     def left_game(self):
         self.running = False
@@ -216,20 +296,22 @@ class Game:
         create_level = Button(("Create level", (0, 0, 0), (255, 255, 255), 50),
                               (0, 0), buttons, self.creating_level)
         start_game = Button(("Start game", (0, 0, 0), (255, 255, 0), 50),
-                            (0, 50), buttons, self.game)
+                            (0, 50), buttons, self.choose_level)
 
         is_in_menu = True
+        running = True
 
-        while (self.running and is_in_menu):
+        while (self.running and is_in_menu and running):
             for event in pygame.event.get():
                 if (event.type == pygame.QUIT):
                     self.left_game()
                 if(event.type == pygame.MOUSEBUTTONDOWN):
+                    running = False
                     buttons.check_event(event)
 
             self.screen.fill((255, 255, 255))
 
-            buttons.draw(self.screen)
+            buttons.draw()
             buttons.update()
             pygame.display.flip()
             self.clock.tick(FPS)
@@ -267,7 +349,7 @@ class ButtonGroup(pygame.sprite.Group):
         super().__init__()
         self.screen = screen
 
-    def draw(self, surface):
+    def draw(self):
         for button in self.sprites():
             button.blit(self.screen)
 
