@@ -1,12 +1,11 @@
 import csv
 import os
-import pickle
 
 import pygame
 
 from EarthClasses import Earth
 from FireClasses import BurningFire
-from constants import FPS, fire_image_name
+from constants import FPS, fire_image_name, water_image_name
 from main_classes import StaticSpriteGroup, NewSprite
 
 
@@ -27,8 +26,10 @@ SEP = os.sep
 def create_fire(screen, event, sprites):
     fire = BurningFire(screen, (event.pos[0], event.pos[1]), sprites)
 
+
 def create_earth(screen, event, sprites, size):
     earth = Earth(screen, (event.pos[0], event.pos[1]), sprites, size)
+
 
 def create_water(screen, event, sprites):
     pass
@@ -37,6 +38,7 @@ def create_water(screen, event, sprites):
 class Player(NewSprite):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.image_name = args[0]
         self.screen = args[1]
         self.x, self.y = args[2]
 
@@ -49,8 +51,16 @@ class Player(NewSprite):
 
         self.jumping = False
 
-        self.addicted_sprites = StaticSpriteGroup((self.x, self.y))
+        self.blast_size_extremes = (20, 60)
+        self.blast_size = self.blast_size_extremes[0]
+
+        self.joystick = None
+        self.addicted_sprites = pygame.sprite.Group()
         self.eyes = NewSprite("eyes.png", self.screen, (self.x, self.y), self.addicted_sprites)
+        self.cursor = NewSprite(self.image_name, self.screen, (self.x, self.y), self.addicted_sprites, self.blast_size)
+
+    def add_joystick(self, joystick):
+        self.joystick = joystick
 
     def set_char_s(self, new_char_s):
         orig_char_s = [self.vx, self.vy, self.ax, self.ay, self.max_vx, self.max_vy]
@@ -68,6 +78,12 @@ class Player(NewSprite):
     def move_check(self, blocker: pygame.sprite.Group):
         self.can_move_y = self.is_possible_to_move(0, self.vy + self.ay, blocker)
         self.can_move_x = self.is_possible_to_move(self.vx + self.ax, 0, blocker)
+        d = -5
+        f = self.is_possible_to_move(self.vx + self.ax, d, blocker)
+        if (f and not self.can_move_x):
+            self.can_move_x = f
+            self.y += d
+
         if (not self.can_move_y):
             self.jumping = False
             self.vy = self.vy * -1 * 0.25
@@ -104,7 +120,25 @@ class Player(NewSprite):
 
             self.y += self.vy
 
-        self.addicted_sprites.set_cords((self.x, self.y))
+        if (self.joystick is not None):
+            g_a2, g_a3 = self.joystick.get_axis(2), self.joystick.get_axis(3)
+            small_gyp = (g_a2 ** 2 + g_a3 ** 2) ** 0.5
+            if (-0.1 < small_gyp < 0.1):
+                small_gyp = 1
+            r = self.size * 0.75
+            dx, dy = (r / small_gyp) * g_a2, (r / small_gyp) * g_a3
+            self.cursor.x, self.cursor.y = self.x + dx, self.y + dy
+        else:
+            g_a2, g_a3 = pygame.mouse.get_pos()[0] - self.x, pygame.mouse.get_pos()[1] - self.y
+            small_gyp = (g_a2 ** 2 + g_a3 ** 2) ** 0.5
+            if (-0.1 < small_gyp < 0.1):
+                small_gyp = 1
+            r = self.size * 0.75
+            dx, dy = (r / small_gyp) * g_a2, (r / small_gyp) * g_a3
+            self.cursor.x, self.cursor.y = self.x + dx, self.y + dy
+
+        self.eyes.x, self.eyes.y = self.x, self.y
+
         self.addicted_sprites.update()
         self.addicted_sprites.draw(self.screen)
 
@@ -117,6 +151,16 @@ class Game:
         size = 1280, 720
         self.screen = pygame.display.set_mode(size)
         self.clock = pygame.time.Clock()
+
+        pygame.joystick.init()
+
+        if (pygame.joystick.get_count() == 0):
+            print("Please, connect controller/joystick/gamepad")
+            pygame.quit()
+            return
+        else:
+            self.joy = pygame.joystick.Joystick(0)
+
         self.running = True
 
         self.start_screen()
@@ -157,48 +201,84 @@ class Game:
                     row = list(map(int, row))
                     sprite = Earth(self.screen, (row[0], row[1]), sprites, row[2])
 
+    def handle_p1_event(self, event: pygame.event.Event):
+        if (event.type == pygame.KEYDOWN):
+            match event.key:
+                # case pygame.K_1:
+                #     self.creating_f = create_fire
+                # case pygame.K_2:
+                #     self.creating_f = create_earth
+                # case pygame.K_3:
+                #     self.creating_f = create_water
+
+                case pygame.K_w:
+                    self.player1.jump()
+                case pygame.K_d:
+                    self.player1.set_char_s([None, None, GOR_ALT, None, None, None])
+                case pygame.K_a:
+                    self.player1.set_char_s([None, None, -GOR_ALT, None, None, None])
+
+        if (event.type == pygame.KEYUP):
+            match event.key:
+                case pygame.K_w:
+                    pass
+                case pygame.K_d:
+                    self.player1.set_char_s([0, None, 0, None, None, None])
+                case pygame.K_a:
+                    self.player1.set_char_s([0, None, 0, None, None, None])
+        # if (event.type == pygame.MOUSEBUTTONDOWN):
+        #     if (self.creating_f == create_earth):
+        #         earth = Earth(self.screen, (event.pos[0], event.pos[1]), ground)
+        #     else:
+        #         self.creating_f(self.screen, event, self.player1.addicted_sprites)
+
+    def handle_p2_event(self, event: pygame.event.Event):
+        if (event.type == pygame.JOYHATMOTION):
+            match (event.value[1]):
+                case 1:
+                    self.player2.jump()
+                case -1:
+                    pass
+                case 0:
+                    pass
+
+            match (event.value[0]):
+                case 1:
+                    self.player2.set_char_s([None, None, GOR_ALT, None, None, None])
+                case -1:
+                    self.player2.set_char_s([None, None, -GOR_ALT, None, None, None])
+                case 0:
+                    self.player2.set_char_s([0, None, 0, None, None, None])
+
+        if (event.type == pygame.KEYUP):
+            match event.key:
+                case pygame.K_w:
+                    pass
+                case pygame.K_d:
+                    self.player1.set_char_s([0, None, 0, None, None, None])
+                case pygame.K_a:
+                    self.player1.set_char_s([0, None, 0, None, None, None])
+
     def game(self, level_name=None):
         self.creating_f = create_earth
         self.players = pygame.sprite.Group()
         self.player1 = Player(fire_image_name, self.screen, (400, 300), self.players)
+        self.player2 = Player(water_image_name, self.screen, (800, 300), self.players)
+        self.player2.add_joystick(self.joy)
 
         ground = pygame.sprite.Group()
         if (level_name is not None):
             self.load_level(level_name, ground)
 
         while (self.running):
-            for event in pygame.event.get():
+            keys = pygame.event.get()
+            mods = pygame.key.get_mods()
+            for event in keys:
                 if (event.type == pygame.QUIT):
                     self.left_game()
-                if (event.type == pygame.KEYDOWN):
-                    match event.key:
-                        case pygame.K_1:
-                            self.creating_f = create_fire
-                        case pygame.K_2:
-                            self.creating_f = create_earth
-                        case pygame.K_3:
-                            self.creating_f = create_water
 
-                        case pygame.K_w:
-                            self.player1.jump()
-                        case pygame.K_d:
-                            self.player1.set_char_s([None, None, GOR_ALT, None, None, None])
-                        case pygame.K_a:
-                            self.player1.set_char_s([None, None, -GOR_ALT, None, None, None])
-
-                if (event.type == pygame.KEYUP):
-                    match event.key:
-                        case pygame.K_w:
-                            pass
-                        case pygame.K_d:
-                            self.player1.set_char_s([0, None, 0, None, None, None])
-                        case pygame.K_a:
-                            self.player1.set_char_s([0, None, 0, None, None, None])
-                if (event.type == pygame.MOUSEBUTTONDOWN):
-                    if (self.creating_f == create_earth):
-                        earth = Earth(self.screen, (event.pos[0], event.pos[1]), ground)
-                    else:
-                        self.creating_f(self.screen, event, self.player1.addicted_sprites)
+                self.handle_p1_event(event)
+                self.handle_p2_event(event)
 
             self.screen.fill((255, 255, 255))
 
@@ -248,7 +328,6 @@ class Game:
                     size += event.y * d
                     if (size < 0):
                         size -= event.y * d
-                    print(size)
 
                 if (event.type == pygame.MOUSEBUTTONDOWN):
                     if (event.button != 5 and event.button != 4):
@@ -280,8 +359,12 @@ class Game:
 
     def save_level(self, saved: pygame.sprite.Group):
         name = input()
+        while (f"{name}.csv" in os.listdir(folder_with_levels)):
+            name = input("Name already exists\n")
+
         file_name = f"{folder_with_levels}{SEP}{name}.csv"
         open(file_name, mode='w').close()
+
         with open(file_name, mode='w') as f:
             writer = csv.writer(f, delimiter=';', lineterminator='\n')
             for obj in saved:
@@ -344,6 +427,7 @@ class Button(pygame.sprite.Sprite):
             if (self.rect.collidepoint(event.pos)):
                 self.method_if_triggered()
 
+
 class ButtonGroup(pygame.sprite.Group):
     def __init__(self, screen):
         super().__init__()
@@ -369,12 +453,14 @@ def collide_by_circle(first: NewSprite, second: NewSprite):
         return True
     return False
 
+
 def collide_by_circle_and_rect(first: NewSprite, second: NewSprite):
     dx, dy = abs(first.x - second.x), abs(first.y - second.y)
     d = (dx ** 2 + dy ** 2) ** 0.5
     if (d <= first.circle_radius + second.circle_radius):
         return True
     return False
+
 
 if __name__ == "__main__":
     game = Game()

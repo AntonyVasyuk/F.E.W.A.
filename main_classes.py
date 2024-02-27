@@ -24,11 +24,17 @@ d = 1
 
 
 class NewSprite(pygame.sprite.Sprite):
-    def __init__(self, image_name, screen, cords, group=None):
+    def __init__(self, image_name, screen, cords, group=None, size=None):
         super().__init__(group)
         self.screen = screen
+        if (size is not None):
+            self.size = size
+        else:
+            self.size = 100
 
-        self.image = load_image(image_name, -1)
+        self.image_default = load_image(image_name, -1)
+        self.image = self.image_default.copy()
+        self.change_size(self.size)
 
         self.rect = self.image.get_rect()
         self.circle_radius = self.rect.height // 2
@@ -36,6 +42,14 @@ class NewSprite(pygame.sprite.Sprite):
 
     def update(self, *args, **kwargs):
         self.rect.x, self.rect.y = self.x - self.rect.width // 2, self.y - self.rect.height // 2
+
+    def change_size(self, size):
+        w_new, h_new = size, size
+        self.image = self.image_default.copy()
+        self.image = pygame.transform.scale(self.image, (w_new, h_new))
+        self.rect = self.image.get_rect()
+        self.circle_radius = self.rect.height // 2
+        super().update(self)
 
 
 class Element(NewSprite):
