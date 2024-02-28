@@ -9,12 +9,20 @@ from constants import FPS, fire_image_name, water_image_name
 from main_classes import StaticSpriteGroup, NewSprite
 
 
+TWO_PLAYERS = False
+
 G = 2
 JUMP_SPEED = 30
+PLAYER_SIZE = 50
 
-GOR_ALT = 3
+GOR_ALT = 2
 MAX_VERT_SPEED = 30
 MAX_GOR_SPEED = 30
+BLAST_MAX_VERT_SPEED = 100
+BLAST_MAX_GOR_SPEED = 100
+
+BOUNCE = 0.25
+BLAST_BOUNCE = 0.8
 
 BTN_CREATE_LEVEL = 1
 BTN_START_GAME = 2
@@ -35,12 +43,103 @@ def create_water(screen, event, sprites):
     pass
 
 
+class Blast(NewSprite):
+    def __init__(self, image_name, screen, cords, epicentre, group=None, size=None):
+        super().__init__(image_name, screen, cords, group, size)
+        self.image_name = image_name
+        self.x, self.y = cords
+        self.ex, self.ey = epicentre
+
+        # self.
+
+        self.max_vx, self.max_vy = BLAST_MAX_GOR_SPEED, BLAST_MAX_VERT_SPEED
+        self.vx, self.vy = 0, 0
+        self.ax, self.ay = 0, G
+
+        self.count_speed()
+
+        self.can_move_y = True
+        self.can_move_x = True
+
+    def count_params(self):
+        if (self.size > 60):
+            self.bounces = -1
+        elif (self.size < 30):
+            self.bounces = 0
+        else:
+            self.bounces = self.size // 10
+
+    def count_speed(self):
+        self.speed = (100 - self.size) / 2
+        dx, dy = self.x - self.ex, self.y - self.ey
+        gyp = (dx ** 2 + dy ** 2) ** 0.5
+        k = self.speed / gyp
+        self.vx, self.vy = k * dx, k * dy
+
+    def set_char_s(self, vx=None, vy=None, ax=None, ay=None, max_vx=None, max_vy=None):
+        orig_char_s = [self.vx, self.vy, self.ax, self.ay, self.max_vx, self.max_vy]
+        new_char_s = [vx, vy, ax, ay, max_vx, max_vy]
+        for i in range(len(new_char_s)):
+            if (new_char_s[i] is None):
+                new_char_s[i] = orig_char_s[i]
+
+        self.vx, self.vy, self.ax, self.ay, self.max_vx, self.max_vy = new_char_s
+
+    def move_check(self, blocker: pygame.sprite.Group):
+        self.can_move_y = self.is_possible_to_move(0, self.vy + self.ay, blocker)
+        self.can_move_x = self.is_possible_to_move(self.vx + self.ax, 0, blocker)
+        # d = -5
+        # f = self.is_possible_to_move(self.vx + self.ax, d, blocker)
+        # if (f and not self.can_move_x):
+        #     self.can_move_x = f
+        #     self.y += d
+
+        if (not self.can_move_y):
+            self.jumping = False
+            self.vy = self.vy * -1 * BLAST_BOUNCE
+
+        if (not self.can_move_x):
+            self.vx = self.vx * -1 * BLAST_BOUNCE
+
+    def is_possible_to_move(self, dx, dy, blocker: pygame.sprite.Group):
+        self.rect.x += dx
+        self.rect.y += dy
+        collide_with = []
+        for sprite in blocker:
+            if pygame.sprite.collide_rect(self, sprite):
+                collide_with.append(sprite)
+        self.rect.x -= dx
+        self.rect.y -= dy
+        if (collide_with):
+            return False
+        else:
+            return True
+
+    def update(self, *args, **kwargs):
+        if (self.can_move_x):
+            self.vx += self.ax
+            if (abs(self.vx) >= self.max_vx):
+                self.vx -= self.ax
+            self.x += self.vx
+
+        if (self.can_move_y):
+
+            self.vy += self.ay
+            if (abs(self.vy) >= self.max_vy):
+                self.vy -= self.ay
+
+            self.y += self.vy
+
+        super().update()
+
+
 class Player(NewSprite):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.image_name = args[0]
         self.screen = args[1]
         self.x, self.y = args[2]
+        self.size = args[4]
 
         self.max_vx, self.max_vy = MAX_GOR_SPEED, MAX_VERT_SPEED
         self.vx, self.vy = 0, 0
@@ -51,19 +150,24 @@ class Player(NewSprite):
 
         self.jumping = False
 
-        self.blast_size_extremes = (20, 60)
+        self.blast_size_extremes = (self.size * 0.2, self.size * 0.8)
         self.blast_size = self.blast_size_extremes[0]
+        self.blasts = pygame.sprite.Group()
 
         self.joystick = None
         self.addicted_sprites = pygame.sprite.Group()
-        self.eyes = NewSprite("eyes.png", self.screen, (self.x, self.y), self.addicted_sprites)
+        self.eyes = NewSprite("eyes.png", self.screen, (self.x, self.y), self.addicted_sprites, self.size)
         self.cursor = NewSprite(self.image_name, self.screen, (self.x, self.y), self.addicted_sprites, self.blast_size)
+
+    def blast(self):
+        blast = Blast(self.image_name, self.screen, (self.cursor.x, self.cursor.y), (self.x, self.y), self.blasts, self.blast_size)
 
     def add_joystick(self, joystick):
         self.joystick = joystick
 
-    def set_char_s(self, new_char_s):
+    def set_char_s(self, vx=None, vy=None, ax=None, ay=None, max_vx=None, max_vy=None):
         orig_char_s = [self.vx, self.vy, self.ax, self.ay, self.max_vx, self.max_vy]
+        new_char_s = [vx, vy, ax, ay, max_vx, max_vy]
         for i in range(len(new_char_s)):
             if (new_char_s[i] is None):
                 new_char_s[i] = orig_char_s[i]
@@ -86,10 +190,10 @@ class Player(NewSprite):
 
         if (not self.can_move_y):
             self.jumping = False
-            self.vy = self.vy * -1 * 0.25
+            self.vy = self.vy * -1 * BOUNCE
 
         if (not self.can_move_x):
-            self.vx = self.vx * -1 * 0.25
+            self.vx = self.vx * -1 * BOUNCE
 
     def is_possible_to_move(self, dx, dy, blocker: pygame.sprite.Group):
         self.rect.x += dx
@@ -141,6 +245,8 @@ class Player(NewSprite):
 
         self.addicted_sprites.update()
         self.addicted_sprites.draw(self.screen)
+        self.blasts.draw(self.screen)
+        self.blasts.update()
 
         super().update()
 
@@ -152,14 +258,15 @@ class Game:
         self.screen = pygame.display.set_mode(size)
         self.clock = pygame.time.Clock()
 
-        pygame.joystick.init()
+        if (TWO_PLAYERS):
+            pygame.joystick.init()
 
-        if (pygame.joystick.get_count() == 0):
-            print("Please, connect controller/joystick/gamepad")
-            pygame.quit()
-            return
-        else:
-            self.joy = pygame.joystick.Joystick(0)
+            if (pygame.joystick.get_count() == 0):
+                print("Please, connect controller/joystick/gamepad")
+                pygame.quit()
+                return
+            else:
+                self.joy = pygame.joystick.Joystick(0)
 
         self.running = True
 
@@ -214,23 +321,26 @@ class Game:
                 case pygame.K_w:
                     self.player1.jump()
                 case pygame.K_d:
-                    self.player1.set_char_s([None, None, GOR_ALT, None, None, None])
+                    self.player1.set_char_s(ax=GOR_ALT)
                 case pygame.K_a:
-                    self.player1.set_char_s([None, None, -GOR_ALT, None, None, None])
+                    self.player1.set_char_s(ax=-GOR_ALT)
 
         if (event.type == pygame.KEYUP):
             match event.key:
                 case pygame.K_w:
                     pass
                 case pygame.K_d:
-                    self.player1.set_char_s([0, None, 0, None, None, None])
+                    self.player1.set_char_s(vx=0, ax=0)
                 case pygame.K_a:
-                    self.player1.set_char_s([0, None, 0, None, None, None])
-        # if (event.type == pygame.MOUSEBUTTONDOWN):
-        #     if (self.creating_f == create_earth):
-        #         earth = Earth(self.screen, (event.pos[0], event.pos[1]), ground)
-        #     else:
-        #         self.creating_f(self.screen, event, self.player1.addicted_sprites)
+                    self.player1.set_char_s(vx=0, ax=0)
+        if (event.type == pygame.MOUSEBUTTONDOWN):
+            if (event.button == 1):
+                self.player1.blast()
+
+            # if (self.creating_f == create_earth):
+            #     earth = Earth(self.screen, (event.pos[0], event.pos[1]), ground)
+            # else:
+            #     self.creating_f(self.screen, event, self.player1.addicted_sprites)
 
     def handle_p2_event(self, event: pygame.event.Event):
         if (event.type == pygame.JOYHATMOTION):
@@ -244,27 +354,19 @@ class Game:
 
             match (event.value[0]):
                 case 1:
-                    self.player2.set_char_s([None, None, GOR_ALT, None, None, None])
+                    self.player2.set_char_s(ax=GOR_ALT)
                 case -1:
-                    self.player2.set_char_s([None, None, -GOR_ALT, None, None, None])
+                    self.player2.set_char_s(ax=-GOR_ALT)
                 case 0:
-                    self.player2.set_char_s([0, None, 0, None, None, None])
-
-        if (event.type == pygame.KEYUP):
-            match event.key:
-                case pygame.K_w:
-                    pass
-                case pygame.K_d:
-                    self.player1.set_char_s([0, None, 0, None, None, None])
-                case pygame.K_a:
-                    self.player1.set_char_s([0, None, 0, None, None, None])
+                    self.player2.set_char_s(vx=0, ax=0)
 
     def game(self, level_name=None):
         self.creating_f = create_earth
         self.players = pygame.sprite.Group()
-        self.player1 = Player(fire_image_name, self.screen, (400, 300), self.players)
-        self.player2 = Player(water_image_name, self.screen, (800, 300), self.players)
-        self.player2.add_joystick(self.joy)
+        self.player1 = Player(fire_image_name, self.screen, (400, 300), self.players, PLAYER_SIZE)
+        self.player2 = Player(water_image_name, self.screen, (800, 300), self.players, PLAYER_SIZE)
+        if (TWO_PLAYERS):
+            self.player2.add_joystick(self.joy)
 
         ground = pygame.sprite.Group()
         if (level_name is not None):
@@ -284,6 +386,8 @@ class Game:
 
             for player in self.players.sprites():
                 player.move_check(ground)
+                for blast in player.blasts.sprites():
+                    blast.move_check(ground)
 
             self.players.draw(self.screen)
             self.players.update()
