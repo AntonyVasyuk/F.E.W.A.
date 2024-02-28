@@ -43,38 +43,22 @@ def create_water(screen, event, sprites):
     pass
 
 
-class Blast(NewSprite):
-    def __init__(self, image_name, screen, cords, epicentre, group=None, size=None):
-        super().__init__(image_name, screen, cords, group, size)
-        self.image_name = image_name
-        self.x, self.y = cords
-        self.ex, self.ey = epicentre
+class ObjectWithPhysics(NewSprite):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.image_name = args[0]
+        self.screen = args[1]
+        self.x, self.y = args[2]
+        self.size = args[4]
 
-        # self.
-
-        self.max_vx, self.max_vy = BLAST_MAX_GOR_SPEED, BLAST_MAX_VERT_SPEED
+        self.max_vx, self.max_vy = MAX_GOR_SPEED, MAX_VERT_SPEED
         self.vx, self.vy = 0, 0
         self.ax, self.ay = 0, G
-
-        self.count_speed()
 
         self.can_move_y = True
         self.can_move_x = True
 
-    def count_params(self):
-        if (self.size > 60):
-            self.bounces = -1
-        elif (self.size < 30):
-            self.bounces = 0
-        else:
-            self.bounces = self.size // 10
-
-    def count_speed(self):
-        self.speed = (100 - self.size) / 2
-        dx, dy = self.x - self.ex, self.y - self.ey
-        gyp = (dx ** 2 + dy ** 2) ** 0.5
-        k = self.speed / gyp
-        self.vx, self.vy = k * dx, k * dy
+        self.bounce = BOUNCE
 
     def set_char_s(self, vx=None, vy=None, ax=None, ay=None, max_vx=None, max_vy=None):
         orig_char_s = [self.vx, self.vy, self.ax, self.ay, self.max_vx, self.max_vy]
@@ -88,18 +72,17 @@ class Blast(NewSprite):
     def move_check(self, blocker: pygame.sprite.Group):
         self.can_move_y = self.is_possible_to_move(0, self.vy + self.ay, blocker)
         self.can_move_x = self.is_possible_to_move(self.vx + self.ax, 0, blocker)
-        # d = -5
-        # f = self.is_possible_to_move(self.vx + self.ax, d, blocker)
-        # if (f and not self.can_move_x):
-        #     self.can_move_x = f
-        #     self.y += d
+        d = -5
+        f = self.is_possible_to_move(self.vx + self.ax, d, blocker)
+        if (f and not self.can_move_x):
+            self.can_move_x = f
+            self.y += d
 
         if (not self.can_move_y):
-            self.jumping = False
-            self.vy = self.vy * -1 * BLAST_BOUNCE
+            self.vy = self.vy * -1 * self.bounce
 
         if (not self.can_move_x):
-            self.vx = self.vx * -1 * BLAST_BOUNCE
+            self.vx = self.vx * -1 * self.bounce
 
     def is_possible_to_move(self, dx, dy, blocker: pygame.sprite.Group):
         self.rect.x += dx
@@ -133,20 +116,55 @@ class Blast(NewSprite):
         super().update()
 
 
-class Player(NewSprite):
+class Blast(ObjectWithPhysics):
+    def __init__(self, image_name, screen, cords, epicentre, group=None, size=None):
+        super().__init__(image_name, screen, cords, group, size)
+        self.image_name = image_name
+        self.x, self.y = cords
+        self.ex, self.ey = epicentre
+
+        self.max_vx, self.max_vy = BLAST_MAX_GOR_SPEED, BLAST_MAX_VERT_SPEED
+        self.bounce = BLAST_BOUNCE
+
+        self.count_speed()
+        self.count_params()
+
+    def count_params(self):
+        if (self.size > 60):
+            self.bounces = None
+        elif (self.size < 30):
+            self.bounces = 0
+        else:
+            self.bounces = self.size // 10
+
+    def count_speed(self):
+        self.speed = (100 - self.size) / 2
+        dx, dy = self.x - self.ex, self.y - self.ey
+        gyp = (dx ** 2 + dy ** 2) ** 0.5
+        k = self.speed / gyp
+        self.vx, self.vy = k * dx, k * dy
+
+    def move_check(self, blocker: pygame.sprite.Group):
+        super().move_check(blocker)
+
+        if (not self.can_move_y or not self.can_move_x):
+            self.bounces -= 1
+
+    def update(self, *args, **kwargs):
+        super().update(*args, **kwargs)
+
+        if (self.bounces == -1):
+            self.remove(self.groups()[0])
+
+
+
+class Player(ObjectWithPhysics):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.image_name = args[0]
         self.screen = args[1]
         self.x, self.y = args[2]
         self.size = args[4]
-
-        self.max_vx, self.max_vy = MAX_GOR_SPEED, MAX_VERT_SPEED
-        self.vx, self.vy = 0, 0
-        self.ax, self.ay = 0, G
-
-        self.can_move_y = True
-        self.can_move_x = True
 
         self.jumping = False
 
@@ -165,64 +183,19 @@ class Player(NewSprite):
     def add_joystick(self, joystick):
         self.joystick = joystick
 
-    def set_char_s(self, vx=None, vy=None, ax=None, ay=None, max_vx=None, max_vy=None):
-        orig_char_s = [self.vx, self.vy, self.ax, self.ay, self.max_vx, self.max_vy]
-        new_char_s = [vx, vy, ax, ay, max_vx, max_vy]
-        for i in range(len(new_char_s)):
-            if (new_char_s[i] is None):
-                new_char_s[i] = orig_char_s[i]
-
-        self.vx, self.vy, self.ax, self.ay, self.max_vx, self.max_vy = new_char_s
-
     def jump(self):
         if (not self.jumping):
             self.vy = -JUMP_SPEED
             self.jumping = True
 
     def move_check(self, blocker: pygame.sprite.Group):
-        self.can_move_y = self.is_possible_to_move(0, self.vy + self.ay, blocker)
-        self.can_move_x = self.is_possible_to_move(self.vx + self.ax, 0, blocker)
-        d = -5
-        f = self.is_possible_to_move(self.vx + self.ax, d, blocker)
-        if (f and not self.can_move_x):
-            self.can_move_x = f
-            self.y += d
-
+        super().move_check(blocker)
+        
         if (not self.can_move_y):
             self.jumping = False
-            self.vy = self.vy * -1 * BOUNCE
-
-        if (not self.can_move_x):
-            self.vx = self.vx * -1 * BOUNCE
-
-    def is_possible_to_move(self, dx, dy, blocker: pygame.sprite.Group):
-        self.rect.x += dx
-        self.rect.y += dy
-        collide_with = []
-        for sprite in blocker:
-            if pygame.sprite.collide_rect(self, sprite):
-                collide_with.append(sprite)
-        self.rect.x -= dx
-        self.rect.y -= dy
-        if (collide_with):
-            return False
-        else:
-            return True
 
     def update(self, *args, **kwargs):
-        if (self.can_move_x):
-            self.vx += self.ax
-            if (abs(self.vx) >= self.max_vx):
-                self.vx -= self.ax
-            self.x += self.vx
-
-        if (self.can_move_y):
-
-            self.vy += self.ay
-            if (abs(self.vy) >= self.max_vy):
-                self.vy -= self.ay
-
-            self.y += self.vy
+        super().update(*args, **kwargs)
 
         if (self.joystick is not None):
             g_a2, g_a3 = self.joystick.get_axis(2), self.joystick.get_axis(3)
@@ -247,8 +220,6 @@ class Player(NewSprite):
         self.addicted_sprites.draw(self.screen)
         self.blasts.draw(self.screen)
         self.blasts.update()
-
-        super().update()
 
 
 class Game:
