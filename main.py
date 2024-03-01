@@ -16,23 +16,25 @@ SCREEN_HEIGHT = 720
 
 TWO_PLAYERS = False
 
-G = 2
-JUMP_SPEED = 30
-PLAYER_SIZE = 100
-PLAYER_MASS = 1000
-K = 0.25
+G = 60 / FPS
+JUMP_SPEED = 900 / FPS
+PLAYER_SIZE = 50
+PLAYER_MASS = 100
+AVG_GET = 0.1
 
-GOR_ALT = 2
-MAX_VERT_SPEED = 30
-MAX_GOR_SPEED = 30
-BLAST_MAX_VERT_SPEED = 100
-BLAST_MAX_GOR_SPEED = 100
+GOR_ALT = 60 / FPS
+MAX_VERT_SPEED = 900 / FPS
+MAX_GOR_SPEED = 900 / FPS
+BLAST_MAX_VERT_SPEED = 3000 / FPS
+BLAST_MAX_GOR_SPEED = 3000 / FPS
 
-FRAMES_TO_RELOAD = 10
+FRAMES_TO_RELOAD = FPS / 3
 
+BLAST_GET = 0.3
 BLAST_MAX_SIZE = 40
 BLAST_MIN_SIZE = 10
 GROWING_SPEED = 0.5
+HIT_COOLDOWN = FPS / 2
 
 BOUNCE = 0.25
 BLAST_BOUNCE = 0.8
@@ -109,15 +111,15 @@ class ObjectWithPhysics(ElementSprite):
     def update(self, *args, **kwargs):
         if (self.can_move_x):
             self.vx += self.ax
-            if (abs(self.vx) >= self.max_vx):
-                self.vx -= self.ax
+            # if (abs(self.vx) >= self.max_vx):
+            #     self.vx -= self.ax
             self.x += self.vx
 
         if (self.can_move_y):
 
             self.vy += self.ay
-            if (abs(self.vy) >= self.max_vy):
-                self.vy -= self.ay
+            # if (abs(self.vy) >= self.max_vy):
+            #     self.vy -= self.ay
 
             self.y += self.vy
 
@@ -130,15 +132,23 @@ class ObjectWithPhysics(ElementSprite):
         self.remove(self.groups()[0])
 
 
-def get_avg(obj1: ObjectWithPhysics, obj2: ObjectWithPhysics, k):
+def avg(obj1: ObjectWithPhysics, obj2: ObjectWithPhysics, k):
     avg = ((obj1.mass + obj2.mass) // 2) * k
-    obj1.mass -= avg
-    obj2.mass -= avg
-
+    return avg
 
 def get_first(obj1: ObjectWithPhysics, obj2: ObjectWithPhysics):
     obj2.mass -= obj1.mass
     obj1.mass = 0
+
+
+def throw_from_epicentre_to_point(epicentre, point, speed):
+    ex, ey = epicentre
+    x, y = point
+    dx, dy = x - ex, y - ey
+    gyp = (dx ** 2 + dy ** 2) ** 0.5
+    k = speed / gyp
+    vx, vy = k * dx, k * dy
+    return vx, vy
 
 
 class Blast(ObjectWithPhysics):
@@ -164,10 +174,7 @@ class Blast(ObjectWithPhysics):
 
     def count_speed(self):
         self.speed = (100 - self.size) / 2
-        dx, dy = self.x - self.ex, self.y - self.ey
-        gyp = (dx ** 2 + dy ** 2) ** 0.5
-        k = self.speed / gyp
-        self.vx, self.vy = k * dx, k * dy
+        self.vx, self.vy = throw_from_epicentre_to_point((self.ex, self.ey), (self.x, self.y), self.speed)
 
     def move_check(self, blocker: pygame.sprite.Group):
         super().move_check(blocker)
@@ -199,6 +206,8 @@ class Player(ObjectWithPhysics):
         self.frames_to_reload = FRAMES_TO_RELOAD
         self.reloading = self.frames_to_reload
 
+        self.hit_reloading = HIT_COOLDOWN
+
         self.joystick = None
         self.addicted_sprites = pygame.sprite.Group()
         self.eyes = ElementSprite("eyes.png", self.screen, (self.x, self.y), self.addicted_sprites, self.size)
@@ -212,7 +221,7 @@ class Player(ObjectWithPhysics):
                           self.blast_size)
             blast.vx += self.vx
             blast.vy += self.vy
-            # self.mass -= self.blast_size
+            self.mass -= self.blast_size * BLAST_GET
             self.blast_size = BLAST_MIN_SIZE
             self.reloading = self.frames_to_reload
 
@@ -235,8 +244,11 @@ class Player(ObjectWithPhysics):
             if (collide_by_circle(self, blast)):
                 get_first(blast, self)
 
-        if (collide_by_circle(self, player)):
-            get_avg(self, player, K)
+        if (self.hit_reloading == 0):
+            if (collide_by_circle(self, player)):
+                self.mass -= avg(self, player, AVG_GET)
+                self.vx, self.vy = throw_from_epicentre_to_point((player.x, player.y), (self.x, self.y), 10)
+                self.hit_reloading = HIT_COOLDOWN
 
     def charge(self):
         if (self.blast_size < BLAST_MAX_SIZE):
@@ -244,13 +256,15 @@ class Player(ObjectWithPhysics):
 
     def annigilation(self):
         pass
-        # print()
 
     def update(self, *args, **kwargs):
         super().update(*args, **kwargs)
 
         if (self.reloading > 0):
             self.reloading -= 1
+
+        if (self.hit_reloading > 0):
+            self.hit_reloading -= 1
 
         if (self.joystick is not None):
             g_a2, g_a3 = self.joystick.get_axis(2), self.joystick.get_axis(3)
@@ -274,10 +288,14 @@ class Player(ObjectWithPhysics):
         self.eyes.x, self.eyes.y = self.x, self.y
 
         self.addicted_sprites.update()
-        self.addicted_sprites.draw(self.screen)
-
-        self.blasts.draw(self.screen)
         self.blasts.update()
+
+        if (not (0 < self.x < SCREEN_WIDTH) or not (0 < self.y < SCREEN_HEIGHT)):
+            self.mass = 0
+
+    def draw_mod(self):
+        self.addicted_sprites.draw(self.screen)
+        self.blasts.draw(self.screen)
 
 
 class MassIndicator(NewSprite):
@@ -449,14 +467,14 @@ class Game:
                 self.handle_p1_event(event)
                 self.handle_p2_event(event)
 
-                self.player1.hit_check(self.player2.blasts, self.player2)
-                self.player2.hit_check(self.player1.blasts, self.player1)
-
             if (1 in pygame.mouse.get_pressed()):
                 self.player1.charge()
 
             if (TWO_PLAYERS and self.joy.get_button(5)):
                 self.player2.charge()
+
+            self.player1.hit_check(self.player2.blasts, self.player2)
+            self.player2.hit_check(self.player1.blasts, self.player1)
 
             self.screen.fill((255, 255, 255))
 
@@ -465,14 +483,16 @@ class Game:
                 for blast in player.blasts.sprites():
                     blast.move_check(ground)
 
-            self.players.draw(self.screen)
             self.players.update()
+            self.players.draw(self.screen)
+            for player in self.players.sprites():
+                player.draw_mod()
 
-            pygame.draw.circle(self.screen, "#000000", (self.player2.x, self.player2.y), self.player2.circle_radius, 0)
+            if (self.player1.mass <= 0):
+                self.restart(self.player2)
 
-            for blast in self.player1.blasts:
-                pygame.draw.circle(self.screen, "#000000", (blast.x, blast.y), blast.circle_radius,
-                                   0)
+            if (self.player2.mass <= 0):
+                self.restart(self.player1)
 
             ground.draw(self.screen)
             ground.update()
@@ -480,6 +500,40 @@ class Game:
             indicators.update()
             indicators.draw(self.screen)
 
+            pygame.display.flip()
+            self.clock.tick(FPS)
+
+    def restart(self, player):
+        buttons = ButtonGroup(self.screen)
+
+        if (player.image_name == fire_image_name):
+            color = "#ED1C24"
+            congratulations = "1"
+        else:
+            color = "#1CA8ED"
+            congratulations = "2"
+
+        btn = Button((f"Player {congratulations} wins!", color, (255, 255, 255), 100),
+                     (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2), buttons)
+        btn.rect.x -= btn.rect.width // 2
+        btn = Button(("Press to restart", (0, 0, 0), (255, 255, 255), 50),
+                     (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 100), buttons, self.start_screen)
+        btn.rect.x -= btn.rect.width // 2
+
+        running = True
+
+        while (running):
+            for event in pygame.event.get():
+                if (event.type == pygame.QUIT):
+                    running = False
+                    self.left_game()
+                if (event.type == pygame.MOUSEBUTTONUP):
+                    buttons.check_event(event)
+
+            self.screen.fill((255, 255, 255))
+
+            buttons.draw()
+            buttons.update()
             pygame.display.flip()
             self.clock.tick(FPS)
 
@@ -493,10 +547,13 @@ class Game:
         other_sprites = pygame.sprite.Group()
         indication = Earth(self.screen, pygame.mouse.get_pos(), other_sprites, size)
 
-        is_new = input("Create new map? (Y/n)\n") == 'Y'
+        is_new = input("Create new map? (N if no)\n") != 'N'
         if (not is_new):
             name = input("Which map to edit?\n")
             self.load_map(name, ground)
+
+        start = None
+        end = None
 
         running = True
 
@@ -511,21 +568,36 @@ class Game:
                     match event.key:
                         case pygame.K_1:
                             self.obj_to_create = Earth
+                            indication.image_name = earth_image_name
+                            indication.change_size(indication.size)
                         case pygame.K_2:
                             self.obj_to_create = Fire
+                            indication.image_name = fire_image_name
+                            indication.change_size(indication.size)
                         case pygame.K_3:
                             self.obj_to_create = Water
-                        # case pygame.K_4:
-                        #     self.obj_to_create = Heal
+                            indication.image_name = water_image_name
+                            indication.change_size(indication.size)
+                        case pygame.K_4:
+                            self.obj_to_create = Earth
+                            indication.image_name = earth_image_name
+                            indication.change_size(indication.size)
 
                         case pygame.K_s:
                             if (mods & pygame.KMOD_CTRL):
                                 self.save_level(ground)
                                 running = False
+
+                    if (event.key == pygame.K_4):
+                        start = -1
+                    else:
+                        start = None
+                        end = None
+
                 if (event.type == pygame.MOUSEWHEEL):
                     d = 5
                     size += event.y * d
-                    if (size < 0):
+                    if (size <= 0):
                         size -= event.y * d
 
                 if (event.type == pygame.MOUSEBUTTONDOWN):
@@ -535,8 +607,28 @@ class Game:
                             if (sprite.del_if_mouse_clicked(event)):
                                 f = False
                         if (f):
-                            place_obj(self.obj_to_create, self.screen, (event.pos[0] + d, event.pos[1] + d), ground,
+                            place_obj(self.obj_to_create, self.screen, (event.pos[0], event.pos[1]), ground,
                                       size)
+
+                        if (start == -1):
+                            start = pygame.mouse.get_pos()
+
+                if (event.type == pygame.MOUSEBUTTONUP):
+                    if (event.button != 5 and event.button != 4):
+                        if (start is not None and start != -1):
+                            end = pygame.mouse.get_pos()
+
+            if (start is not None and start != -1):
+                if (end is not None):
+                    dx, dy = end[0] - start[0], end[1] - start[1]
+                    dist = (dx ** 2 + dy ** 2) ** 0.5
+                    n = int(dist / size)
+                    for i in range(1, n + 1):
+                        place_obj(self.obj_to_create, self.screen, (start[0] + i * (dx / n), start[1] + i * (dy / n)), ground,
+                                  size)
+                    print(start, end)
+                    start = -1
+                    end = None
 
             self.screen.fill((255, 255, 255))
 
@@ -545,7 +637,7 @@ class Game:
 
             indication.change_size(size)
 
-            indication.x, indication.y = map(lambda x: x + d, list(pygame.mouse.get_pos()))
+            indication.x, indication.y = list(pygame.mouse.get_pos())
             other_sprites.update()
             other_sprites.draw(self.screen)
 
@@ -591,7 +683,7 @@ class Game:
 
     def start_screen(self):
         buttons = ButtonGroup(self.screen)
-        btn = Button(("Start game", (200, 0, 0), (255, 255, 255), 50),
+        btn = Button(("Start game", (0, 200, 0), (255, 255, 255), 50),
                      (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2), buttons, self.choose_level)
         btn.rect.x -= btn.rect.width // 2
         btn = Button(("Create level", (0, 0, 0), (255, 255, 255), 50),
@@ -617,7 +709,7 @@ class Game:
 
 
 class Button(pygame.sprite.Sprite):
-    def __init__(self, text_args, cords, group, func, i=None):
+    def __init__(self, text_args, cords, group, func=None, i=None):
         super().__init__(group)
         self.method_if_triggered = func
         self.i = i
@@ -641,10 +733,11 @@ class Button(pygame.sprite.Sprite):
 
     def check_event(self, event: pygame.event.Event):
         if (self.rect.collidepoint(event.pos)):
-            if (self.i is None):
-                self.method_if_triggered()
-            else:
-                self.method_if_triggered(self.i)
+            if (self.method_if_triggered is not None):
+                if (self.i is None):
+                    self.method_if_triggered()
+                else:
+                    self.method_if_triggered(self.i)
 
 
 class ButtonGroup(pygame.sprite.Group):
