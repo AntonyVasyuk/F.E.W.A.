@@ -1,7 +1,5 @@
-import csv
-import locale
+import json
 import os
-from copy import deepcopy
 
 import pygame
 
@@ -16,31 +14,30 @@ SCREEN_HEIGHT = 720
 
 TWO_PLAYERS = False
 
-G = 60 / FPS
-JUMP_SPEED = 900 / FPS
+G = 60 / FPS  # Free-falling altitude
+JUMP_SPEED = 900 / FPS  # Vertical speed on jump
+FRAMES_CAN_JUMP = 10
 PLAYER_SIZE = 50
-PLAYER_MASS = 100
-AVG_GET = 0.1
+PLAYER_MASS = 1000
+AVG_GET = 0.1  # How much mass get if players is touching
 
-GOR_ALT = 60 / FPS
-MAX_VERT_SPEED = 900 / FPS
-MAX_GOR_SPEED = 900 / FPS
+HOR_ALT = 60 / FPS  # Horizontal altitude
+
+MAX_VERT_SPEED = 1000 / FPS
+MAX_GOR_SPEED = 1000 / FPS
 BLAST_MAX_VERT_SPEED = 3000 / FPS
-BLAST_MAX_GOR_SPEED = 3000 / FPS
+BLAST_MAX_HOR_SPEED = 3000 / FPS
 
-FRAMES_TO_RELOAD = FPS / 3
+FRAMES_TO_RELOAD = FPS / 3  # Frames between blasts
 
-BLAST_GET = 0.3
+BLAST_GET = 0.3  # How much mass player need to blast
 BLAST_MAX_SIZE = 40
 BLAST_MIN_SIZE = 10
-GROWING_SPEED = 0.5
+GROWING_SPEED = 0.5  # Blast growing speed
 HIT_COOLDOWN = FPS / 2
 
 BOUNCE = 0.25
 BLAST_BOUNCE = 0.8
-
-BTN_CREATE_LEVEL = 1
-BTN_START_GAME = 2
 
 folder_with_levels = "levels"
 SEP = os.sep
@@ -51,7 +48,7 @@ def place_obj(Obj, screen, cords, sprites, size=None):
     obj = Obj(screen, cords, sprites, size)
 
 
-class ObjectWithPhysics(ElementSprite):
+class ObjectWithPhysics(ElementSprite):  # Class of object that follows physics laws
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.image_name = args[0]
@@ -70,7 +67,7 @@ class ObjectWithPhysics(ElementSprite):
 
         self.mass = self.size
 
-    def set_char_s(self, vx=None, vy=None, ax=None, ay=None, max_vx=None, max_vy=None):
+    def set_char_s(self, vx=None, vy=None, ax=None, ay=None, max_vx=None, max_vy=None):  # Change speed or altitude
         orig_char_s = [self.vx, self.vy, self.ax, self.ay, self.max_vx, self.max_vy]
         new_char_s = [vx, vy, ax, ay, max_vx, max_vy]
         for i in range(len(new_char_s)):
@@ -79,7 +76,7 @@ class ObjectWithPhysics(ElementSprite):
 
         self.vx, self.vy, self.ax, self.ay, self.max_vx, self.max_vy = new_char_s
 
-    def move_check(self, blocker: pygame.sprite.Group):
+    def move_check(self, blocker: pygame.sprite.Group):  # Checking can it move to the next position
         self.can_move_y = self.is_possible_to_move(0, self.vy + self.ay, blocker)
         self.can_move_x = self.is_possible_to_move(self.vx + self.ax, 0, blocker)
         d = -5
@@ -88,13 +85,13 @@ class ObjectWithPhysics(ElementSprite):
             self.can_move_x = f
             self.y += d
 
-        if (not self.can_move_y):
+        if (not self.can_move_y):  # There is implementation of bounce from surfaces
             self.vy = self.vy * -1 * self.bounce
 
         if (not self.can_move_x):
             self.vx = self.vx * -1 * self.bounce
 
-    def is_possible_to_move(self, dx, dy, blocker: pygame.sprite.Group):
+    def is_possible_to_move(self, dx, dy, blocker: pygame.sprite.Group):  # Check actually the next position
         self.rect.x += dx
         self.rect.y += dy
         collide_with = []
@@ -111,15 +108,14 @@ class ObjectWithPhysics(ElementSprite):
     def update(self, *args, **kwargs):
         if (self.can_move_x):
             self.vx += self.ax
-            # if (abs(self.vx) >= self.max_vx):
-            #     self.vx -= self.ax
+            if (abs(self.vx) >= self.max_vx):
+                self.vx -= self.ax
             self.x += self.vx
 
         if (self.can_move_y):
-
             self.vy += self.ay
-            # if (abs(self.vy) >= self.max_vy):
-            #     self.vy -= self.ay
+            if (abs(self.vy) >= self.max_vy):
+                self.vy -= self.ay
 
             self.y += self.vy
 
@@ -128,7 +124,7 @@ class ObjectWithPhysics(ElementSprite):
 
         super().update()
 
-    def annigilation(self):
+    def annigilation(self):  # What if objects is not existing?
         self.remove(self.groups()[0])
 
 
@@ -136,13 +132,14 @@ def avg(obj1: ObjectWithPhysics, obj2: ObjectWithPhysics, k):
     avg = ((obj1.mass + obj2.mass) // 2) * k
     return avg
 
+
 def get_first(obj1: ObjectWithPhysics, obj2: ObjectWithPhysics):
     obj2.mass -= obj1.mass
     obj1.mass = 0
 
 
-def throw_from_epicentre_to_point(epicentre, point, speed):
-    ex, ey = epicentre
+def throw_from_epicentre_to_point(epicentre, point, speed):  # Changing objects x and y speed multipliers for simulating
+    ex, ey = epicentre  # object shot from epicentre to point with given speed
     x, y = point
     dx, dy = x - ex, y - ey
     gyp = (dx ** 2 + dy ** 2) ** 0.5
@@ -151,22 +148,20 @@ def throw_from_epicentre_to_point(epicentre, point, speed):
     return vx, vy
 
 
-class Blast(ObjectWithPhysics):
+class Blast(ObjectWithPhysics):  # Class of the flying object, that shot from players
     def __init__(self, image_name, screen, cords, epicentre, group=None, size=None):
         super().__init__(image_name, screen, cords, group, size)
         self.image_name = image_name
         self.x, self.y = cords
         self.ex, self.ey = epicentre
 
-        self.max_vx, self.max_vy = BLAST_MAX_GOR_SPEED, BLAST_MAX_VERT_SPEED
+        self.max_vx, self.max_vy = BLAST_MAX_HOR_SPEED, BLAST_MAX_VERT_SPEED
         self.bounce = BLAST_BOUNCE
 
         self.count_speed()
         self.count_params()
 
-    def count_params(self):
-        # if (self.size > BLAST_MAX_SIZE - 10):
-        #     self.bounces = None
+    def count_params(self):  # Count number of bounces depend on size
         if (self.size < BLAST_MIN_SIZE + 5):
             self.bounces = 0
         else:
@@ -190,7 +185,7 @@ class Blast(ObjectWithPhysics):
                 self.remove(self.groups()[0])
 
 
-class Player(ObjectWithPhysics):
+class Player(ObjectWithPhysics):  # Class of player: jumping, blasting, running, etc.
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.image_name = args[0]
@@ -199,6 +194,7 @@ class Player(ObjectWithPhysics):
         self.size = args[4]
 
         self.jumping = False
+        self.jump_reloading = FRAMES_CAN_JUMP
 
         self.blast_size_extremes = (BLAST_MIN_SIZE, BLAST_MAX_SIZE)
         self.blast_size = self.blast_size_extremes[0]
@@ -211,7 +207,8 @@ class Player(ObjectWithPhysics):
         self.joystick = None
         self.addicted_sprites = pygame.sprite.Group()
         self.eyes = ElementSprite("eyes.png", self.screen, (self.x, self.y), self.addicted_sprites, self.size)
-        self.cursor = ElementSprite(self.image_name, self.screen, (self.x, self.y), self.addicted_sprites, self.blast_size)
+        self.cursor = ElementSprite(self.image_name, self.screen, (self.x, self.y), self.addicted_sprites,
+                                    self.blast_size)
 
         self.mass = PLAYER_MASS
 
@@ -231,13 +228,16 @@ class Player(ObjectWithPhysics):
     def jump(self):
         if (not self.jumping):
             self.vy = -JUMP_SPEED
-            self.jumping = True
+            self.jump_reloading = FRAMES_CAN_JUMP
 
     def move_check(self, blocker: pygame.sprite.Group):
         super().move_check(blocker)
 
         if (not self.can_move_y):
             self.jumping = False
+        else:
+            if (self.jump_reloading > 0):
+                self.jumping = True
 
     def hit_check(self, blasts: pygame.sprite.Group, player):
         for blast in blasts.sprites():
@@ -265,6 +265,9 @@ class Player(ObjectWithPhysics):
 
         if (self.hit_reloading > 0):
             self.hit_reloading -= 1
+
+        if (self.jump_reloading > 0):
+            self.jump_reloading -= 1
 
         if (self.joystick is not None):
             g_a2, g_a3 = self.joystick.get_axis(2), self.joystick.get_axis(3)
@@ -338,14 +341,14 @@ class Game:
         self.start_screen()
 
     def choose_level(self):
-        levels = list(map(lambda s: s[:-4], os.listdir(folder_with_levels)))
+        levels = list(map(lambda s: s[:-5], os.listdir(folder_with_levels)))
 
         buttons = ButtonGroup(self.screen)
         font = 50
 
         for i in range(len(levels)):
             btn = Button((levels[i], (0, 0, 0), (255, 255, 255), font),
-                             (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + i * font), buttons, self.game, i)
+                         (SCREEN_WIDTH // 2, 100 + i * font), buttons, self.game, i)
             btn.rect.x -= btn.rect.width // 2
 
         running = True
@@ -366,18 +369,17 @@ class Game:
             pygame.display.flip()
 
     def load_level(self, level_name, sprites, pl1, pl2):
-        with open(f"{folder_with_levels}{SEP}{level_name}.csv") as f:
-            reader = csv.reader(f, delimiter=';', lineterminator='\n')
-            for i, row in enumerate(reader):
-                if (row):
-                    t = row[3]
-                    row = list(map(int, row[:3]))
-                    if t == earth_image_name:
-                        sprite = Earth(self.screen, (row[0], row[1]), sprites, row[2])
-                    if t == fire_image_name:
-                        pl1.x, pl1.y = row[0], row[1]
-                    if t == water_image_name:
-                        pl2.x, pl2.y = row[0], row[1]
+        with open(f"{folder_with_levels}{SEP}{level_name}.json") as f:
+            from_save = json.load(f)
+            for obj in from_save:
+                type = obj["type"]
+                x, y, size = map(int, [obj["x"], obj["y"], obj["size"]])
+                if type == earth_image_name:
+                    sprite = Earth(self.screen, (x, y), sprites, size)
+                if type == fire_image_name:
+                    pl1.x, pl1.y = x, y
+                if type == water_image_name:
+                    pl2.x, pl2.y = x, y
 
     def handle_p1_event(self, event: pygame.event.Event):
         player = self.player1
@@ -393,9 +395,9 @@ class Game:
                 case pygame.K_w:
                     player.jump()
                 case pygame.K_d:
-                    player.set_char_s(ax=GOR_ALT)
+                    player.set_char_s(ax=HOR_ALT)
                 case pygame.K_a:
-                    player.set_char_s(ax=-GOR_ALT)
+                    player.set_char_s(ax=-HOR_ALT)
 
         if (event.type == pygame.KEYUP):
             match event.key:
@@ -428,9 +430,9 @@ class Game:
 
             match (event.value[0]):
                 case 1:
-                    player.set_char_s(ax=GOR_ALT)
+                    player.set_char_s(ax=HOR_ALT)
                 case -1:
-                    player.set_char_s(ax=-GOR_ALT)
+                    player.set_char_s(ax=-HOR_ALT)
                 case 0:
                     player.set_char_s(vx=0, ax=0)
 
@@ -450,7 +452,7 @@ class Game:
         self.mass2 = MassIndicator(self.player2, self.screen, (SCREEN_WIDTH - 350, 50), indicators)
 
         ground = pygame.sprite.Group()
-        level_name = list(map(lambda s: s[:-4], os.listdir(folder_with_levels)))[level_i]
+        level_name = list(map(lambda s: s[:-5], os.listdir(folder_with_levels)))[level_i]
         if (level_name is not None):
             self.load_level(level_name, ground, self.player1, self.player2)
 
@@ -499,6 +501,11 @@ class Game:
 
             indicators.update()
             indicators.draw(self.screen)
+
+            # blocker = ground
+            # for block in blocker.sprites():
+            #     print("***")
+            #     pygame.draw.circle(self.screen, "#000000", (block.x, block.y), block.circle_radius)
 
             pygame.display.flip()
             self.clock.tick(FPS)
@@ -624,9 +631,9 @@ class Game:
                     dist = (dx ** 2 + dy ** 2) ** 0.5
                     n = int(dist / size)
                     for i in range(1, n + 1):
-                        place_obj(self.obj_to_create, self.screen, (start[0] + i * (dx / n), start[1] + i * (dy / n)), ground,
+                        place_obj(self.obj_to_create, self.screen, (start[0] + i * (dx / n), start[1] + i * (dy / n)),
+                                  ground,
                                   size)
-                    print(start, end)
                     start = -1
                     end = None
 
@@ -647,36 +654,41 @@ class Game:
         self.start_screen()
 
     def load_map(self, level_name, sprites):
-        with open(f"{folder_with_levels}{SEP}{level_name}.csv") as f:
-            reader = csv.reader(f, delimiter=';', lineterminator='\n')
-            for i, row in enumerate(reader):
-                if (row):
-                    t = row[3]
-                    row = list(map(int, row[:3]))
-                    if t == earth_image_name:
-                        obj = Earth
-                    if t == fire_image_name:
-                        obj = Fire
-                    if t == water_image_name:
-                        obj = Water
+        with open(f"{folder_with_levels}{SEP}{level_name}.json") as f:
+            from_save = json.load(f)
+            for obj in from_save:
+                type = obj["type"]
+                x, y, size = map(int, [obj["x"], obj["y"], obj["size"]])
+                if type == earth_image_name:
+                    obj = Earth
+                if type == fire_image_name:
+                    obj = Fire
+                if type == water_image_name:
+                    obj = Water
 
-                    place_obj(obj, self.screen, (row[0], row[1]), sprites, row[2])
+                place_obj(obj, self.screen, (x, y), sprites, size)
 
     def save_level(self, saved: pygame.sprite.Group):
         name = input("Enter name of the level\n")
         rewrite = False
-        while (f"{name}.csv" in os.listdir(folder_with_levels) and not rewrite):
+        while (f"{name}.json" in os.listdir(folder_with_levels) and not rewrite):
             rewrite = input("Name already exists. Rewrite? (Y/n)\n") == 'Y'
             if (not rewrite):
                 name = input("Enter new name\n")
 
-        file_name = f"{folder_with_levels}{SEP}{name}.csv"
+        file_name = f"{folder_with_levels}{SEP}{name}.json"
         open(file_name, mode='w').close()
 
         with open(file_name, mode='w') as f:
-            writer = csv.writer(f, delimiter=';', lineterminator='\n')
+            for_save = []
             for obj in saved:
-                writer.writerow([obj.x, obj.y, obj.rect.width, obj.image_name])
+                for_save.append({
+                    "x": obj.x,
+                    "y": obj.y,
+                    "size": obj.rect.width,
+                    "type": obj.image_name})
+
+            json.dump(for_save, f)
 
     def left_game(self):
         pygame.quit()
