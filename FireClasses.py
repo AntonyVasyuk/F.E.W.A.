@@ -3,7 +3,12 @@ from random import randint
 import pygame
 
 from constants import FPS, fire_image_name
-from main_classes import Particle, ParticlesSource
+from main_classes import Particle, ParticlesSource, ElementSprite
+
+
+class Fire(ElementSprite):
+    def __init__(self, *args, **kwargs):
+        super().__init__(fire_image_name, *args, **kwargs)
 
 
 class BurningFire(ParticlesSource):

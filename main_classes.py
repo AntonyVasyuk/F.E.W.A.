@@ -24,6 +24,19 @@ d = 1
 
 
 class NewSprite(pygame.sprite.Sprite):
+    def __init__(self, image_name, screen, cords, group=None):
+        super().__init__(group)
+        self.screen = screen
+
+        self.image_name = image_name
+        self.image_default = load_image(image_name, -1)
+        self.image = self.image_default.copy()
+
+        self.rect = self.image.get_rect()
+        self.rect.x, self.rect.y = cords
+
+
+class ElementSprite(pygame.sprite.Sprite):
     def __init__(self, image_name, screen, cords, group=None, size=None):
         super().__init__(group)
         self.screen = screen
@@ -32,6 +45,7 @@ class NewSprite(pygame.sprite.Sprite):
         else:
             self.size = 100
 
+        self.image_name = image_name
         self.image_default = load_image(image_name, -1)
         self.image = self.image_default.copy()
         self.change_size(self.size)
@@ -52,28 +66,7 @@ class NewSprite(pygame.sprite.Sprite):
         super().update(self)
 
 
-class Element(NewSprite):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.left_change = LEFT_CHANGE
-        self.right_change = RIGHT_CHANGE
-
-    def changing_size(self):
-        # next peace of code is for the little size difference between the particles
-        w_new, h_new = self.new_size()
-        self.image = pygame.transform.scale(self.image, (w_new, h_new))
-        self.rect = self.image.get_rect()
-        self.circle_radius = self.rect.height // 2
-        super().update(self)
-
-    def new_size(self):
-        w, h = self.image.get_width(), self.image.get_height()
-        scale_change = randint(self.left_change, self.right_change)
-        w_new, h_new = int(w * (scale_change / 100)), int(h * (scale_change / 100))
-        return w_new, h_new
-
-
-class Particle(Element):
+class Particle(ElementSprite):
     def __init__(self, *args, **kwargs):
         self.frames_to_live = randint(200, 400)
         self.age = 0
@@ -86,7 +79,7 @@ class Particle(Element):
         super().update()
 
 
-class ParticlesSource(Element):
+class ParticlesSource(ElementSprite):
     def __init__(self, *args, **kwargs):
         self.particles = pygame.sprite.Group()
         self.particles_borning_v = 35  # it's 1 born for {self.particles_borning_v} frames
